@@ -11,6 +11,7 @@ from .views import (
     ItemTypeViewSet, BrandViewSet, SKUViewSet, StockMovementView,
     CheckoutView, TodaysBillsView, DashboardSummaryView, DashboardTrendView,
     StaffManagementViewSet, BrandManagementViewSet, SKUManagementViewSet,
+    DemoControlView,
 )
 
 
@@ -53,5 +54,6 @@ urlpatterns = [
     path("billing/today/", TodaysBillsView.as_view(), name="todays-bills"),
     path("dashboard/summary/", DashboardSummaryView.as_view(), name="dashboard-summary"),
     path("dashboard/trend/", DashboardTrendView.as_view(), name="dashboard-trend"),
+    path("admin/demo/", DemoControlView.as_view(), name="demo-control"),
     path("", include(router.urls)),
 ]

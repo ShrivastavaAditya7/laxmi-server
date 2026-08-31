@@ -25,6 +25,7 @@ from .serializers import (
     PinResetSerializer, BrandCreateSerializer, SKUManageSerializer, SKUCreateSerializer,
 )
 from .permissions import IsAdmin, IsWarehouseOrAdmin, IsBillingOrAdmin, IsAnyStaff
+from . import demo_simulator
 from .services import movement_score, tier_for_score, matrix_action, atp_for_balance
 
 
@@ -451,3 +452,52 @@ class SKUManagementViewSet(viewsets.ModelViewSet):
         sku.is_active = False
         sku.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Demo controls — no CLI/shell needed. Exists specifically for hosts like
+# Render's free tier that don't give you a shell to run management commands.
+# The live ticker runs as a background thread INSIDE this web process, so it
+# only keeps going while at least one server instance/process stays alive —
+# fine for a single free-tier dyno during a presentation, not a substitute
+# for a real task queue at production scale.
+# ---------------------------------------------------------------------------
+class DemoControlView(APIView):
+    """
+    Admin-only for everything EXCEPT the very first seed call: if the database
+    has zero staff accounts, seeding is allowed unauthenticated, since there's
+    no way to log in as Admin before staff exist. This window closes itself —
+    the moment seed_catalog runs once, StaffUser.objects.count() > 0 and every
+    other action (including seed re-runs) goes back to requiring real login.
+    """
+    def get_permissions(self):
+        if self.request.method == "POST" and self.request.data.get("action") == "seed":
+            if StaffUser.objects.count() == 0:
+                return []  # no permission classes = open, only while genuinely empty
+        return [IsAdmin()]
+
+    def get(self, request):
+        return Response({
+            "live_running": demo_simulator.LiveTicker.is_running(),
+            "sku_count": SKU.objects.count(),
+            "staff_count": StaffUser.objects.count(),
+        })
+
+    def post(self, request):
+        action_type = request.data.get("action")
+        if action_type == "seed":
+            from django.core.management import call_command
+            call_command("seed_catalog")
+            return Response({"detail": "Catalog and staff accounts seeded (safe to re-run — skips existing rows)."})
+        if action_type == "backfill":
+            days = int(request.data.get("days", 14))
+            count = demo_simulator.run_backfill(days=days)
+            return Response({"detail": f"Backfilled {count} sales over {days} days."})
+        if action_type == "live_start":
+            interval = int(request.data.get("interval", 5))
+            started = demo_simulator.LiveTicker.start(interval=interval)
+            return Response({"detail": "Live ticker started." if started else "Already running.", "live_running": True})
+        if action_type == "live_stop":
+            demo_simulator.LiveTicker.stop()
+            return Response({"detail": "Live ticker stopping.", "live_running": False})
+        raise ValidationError("action must be one of: backfill, live_start, live_stop")
