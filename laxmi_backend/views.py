@@ -1,4 +1,5 @@
 import uuid
+import traceback
 from datetime import timedelta
 from decimal import Decimal
 
@@ -501,3 +502,40 @@ class DemoControlView(APIView):
             demo_simulator.LiveTicker.stop()
             return Response({"detail": "Live ticker stopping.", "live_running": False})
         raise ValidationError("action must be one of: backfill, live_start, live_stop")
+
+
+
+
+if action == "seed":
+    try:
+        from django.core.management import call_command
+
+        print("\n" + "=" * 80)
+        print("STARTING DATABASE SEED")
+        print("=" * 80)
+
+        call_command("seed_catalog")
+
+        print("DATABASE SEED COMPLETED SUCCESSFULLY")
+
+        return Response({
+            "success": True,
+            "message": "Database seeded successfully"
+        })
+
+    except Exception as e:
+
+        print("\n" + "=" * 80)
+        print("DATABASE SEED FAILED")
+        print("=" * 80)
+
+        print(traceback.format_exc())
+
+        return Response(
+            {
+                "success": False,
+                "error_type": type(e).__name__,
+                "error": str(e),
+            },
+            status=500
+        )
