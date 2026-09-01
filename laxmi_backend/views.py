@@ -463,22 +463,96 @@ class SKUManagementViewSet(viewsets.ModelViewSet):
 # fine for a single free-tier dyno during a presentation, not a substitute
 # for a real task queue at production scale.
 # ---------------------------------------------------------------------------
+# class DemoControlView(APIView):
+#     """
+#     Admin-only for everything EXCEPT the very first seed call: if the database
+#     has zero staff accounts, seeding is allowed unauthenticated, since there's
+#     no way to log in as Admin before staff exist. This window closes itself —
+#     the moment seed_catalog runs once, StaffUser.objects.count() > 0 and every
+#     other action (including seed re-runs) goes back to requiring real login.
+#     """
+#     def get_permissions(self):
+#         if self.request.method == "POST" and self.request.data.get("action") == "seed":
+#             if StaffUser.objects.count() == 0:
+#                 return []  # no permission classes = open, only while genuinely empty
+#         return [IsAdmin()]
+
+#     def get(self, request):
+#         return Response({
+#             "live_running": demo_simulator.LiveTicker.is_running(),
+#             "sku_count": SKU.objects.count(),
+#             "staff_count": StaffUser.objects.count(),
+#         })
+
+#     def post(self, request):
+#         action_type = request.data.get("action")
+#         if action_type == "seed":
+#             from django.core.management import call_command
+#             call_command("seed_catalog")
+#             return Response({"detail": "Catalog and staff accounts seeded (safe to re-run — skips existing rows)."})
+#         if action_type == "backfill":
+#             days = int(request.data.get("days", 14))
+#             count = demo_simulator.run_backfill(days=days)
+#             return Response({"detail": f"Backfilled {count} sales over {days} days."})
+#         if action_type == "live_start":
+#             interval = int(request.data.get("interval", 5))
+#             started = demo_simulator.LiveTicker.start(interval=interval)
+#             return Response({"detail": "Live ticker started." if started else "Already running.", "live_running": True})
+#         if action_type == "live_stop":
+#             demo_simulator.LiveTicker.stop()
+#             return Response({"detail": "Live ticker stopping.", "live_running": False})
+#         raise ValidationError("action must be one of: backfill, live_start, live_stop")
+
+
+# ---------------------------------------------------------------------------
+
+# Demo controls — no CLI/shell needed. Exists specifically for hosts like
+
+# Render's free tier that don't give you a shell to run management commands.
+
+#
+
+# Seed is temporarily wrapped with traceback logging so deployment/runtime
+
+# errors can be diagnosed safely. Remove/disable verbose traceback handling
+
+# after the production demo is stable.
+
+# ---------------------------------------------------------------------------
+
 class DemoControlView(APIView):
-    """
-    Admin-only for everything EXCEPT the very first seed call: if the database
-    has zero staff accounts, seeding is allowed unauthenticated, since there's
-    no way to log in as Admin before staff exist. This window closes itself —
-    the moment seed_catalog runs once, StaffUser.objects.count() > 0 and every
-    other action (including seed re-runs) goes back to requiring real login.
-    """
+
+#Admin-only for everything EXCEPT the very first seed call.
+#If the database has zero staff accounts, the first seed call is allowed
+#without authentication because there is no Admin account yet.
+
+#Once staff exist, all actions require IsAdmin.
+
+
     def get_permissions(self):
-        if self.request.method == "POST" and self.request.data.get("action") == "seed":
-            if StaffUser.objects.count() == 0:
-                return []  # no permission classes = open, only while genuinely empty
+        if (
+            self.request.method == "POST"
+            and self.request.data.get("action") == "seed"
+            and StaffUser.objects.count() == 0
+        ):
+            # Bootstrap permission:
+            # database is genuinely empty, so no login is possible yet.
+            return []
+
         return [IsAdmin()]
 
     def get(self, request):
+        """
+        Temporary diagnostic GET endpoint.
+
+        This confirms that the deployed DemoControlView is actually being
+        reached and also reports the current database state.
+        """
+        from django.conf import settings
+
         return Response({
+            "status": "DemoControlView reached",
+            "debug": settings.DEBUG,
             "live_running": demo_simulator.LiveTicker.is_running(),
             "sku_count": SKU.objects.count(),
             "staff_count": StaffUser.objects.count(),
@@ -486,56 +560,162 @@ class DemoControlView(APIView):
 
     def post(self, request):
         action_type = request.data.get("action")
+
+        # ------------------------------------------------------------------
+        # SEED
+        # ------------------------------------------------------------------
         if action_type == "seed":
-            from django.core.management import call_command
-            call_command("seed_catalog")
-            return Response({"detail": "Catalog and staff accounts seeded (safe to re-run — skips existing rows)."})
+
+            try:
+                from django.core.management import call_command
+
+                print("\n" + "=" * 80)
+                print("STARTING DATABASE SEED")
+                print("=" * 80)
+
+                call_command("seed_catalog")
+
+                print("=" * 80)
+                print("DATABASE SEED COMPLETED SUCCESSFULLY")
+                print("=" * 80)
+
+                return Response({
+                    "success": True,
+                    "message": (
+                        "Catalog and staff accounts seeded successfully."
+                    ),
+                    "sku_count": SKU.objects.count(),
+                    "staff_count": StaffUser.objects.count(),
+                })
+
+            except Exception as e:
+                print("\n" + "=" * 80)
+                print("DATABASE SEED FAILED")
+                print("=" * 80)
+                print(traceback.format_exc())
+                print("=" * 80)
+
+                return Response(
+                    {
+                        "success": False,
+                        "error_type": type(e).__name__,
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        # ------------------------------------------------------------------
+        # BACKFILL
+        # ------------------------------------------------------------------
         if action_type == "backfill":
-            days = int(request.data.get("days", 14))
-            count = demo_simulator.run_backfill(days=days)
-            return Response({"detail": f"Backfilled {count} sales over {days} days."})
+
+            try:
+                days = int(request.data.get("days", 14))
+
+                count = demo_simulator.run_backfill(days=days)
+
+                return Response({
+                    "success": True,
+                    "detail": (
+                        f"Backfilled {count} sales over {days} days."
+                    ),
+                })
+
+            except Exception as e:
+                print("\n" + "=" * 80)
+                print("BACKFILL FAILED")
+                print("=" * 80)
+                print(traceback.format_exc())
+                print("=" * 80)
+
+                return Response(
+                    {
+                        "success": False,
+                        "error_type": type(e).__name__,
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        # ------------------------------------------------------------------
+        # LIVE START
+        # ------------------------------------------------------------------
         if action_type == "live_start":
-            interval = int(request.data.get("interval", 5))
-            started = demo_simulator.LiveTicker.start(interval=interval)
-            return Response({"detail": "Live ticker started." if started else "Already running.", "live_running": True})
+
+            try:
+                interval = int(request.data.get("interval", 5))
+
+                started = demo_simulator.LiveTicker.start(
+                    interval=interval
+                )
+
+                return Response({
+                    "success": True,
+                    "detail": (
+                        "Live ticker started."
+                        if started
+                        else "Live ticker already running."
+                    ),
+                    "live_running": demo_simulator.LiveTicker.is_running(),
+                    "interval": interval,
+                })
+
+            except Exception as e:
+                print("\n" + "=" * 80)
+                print("LIVE TICKER START FAILED")
+                print("=" * 80)
+                print(traceback.format_exc())
+                print("=" * 80)
+
+                return Response(
+                    {
+                        "success": False,
+                        "error_type": type(e).__name__,
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        # ------------------------------------------------------------------
+        # LIVE STOP
+        # ------------------------------------------------------------------
         if action_type == "live_stop":
-            demo_simulator.LiveTicker.stop()
-            return Response({"detail": "Live ticker stopping.", "live_running": False})
-        raise ValidationError("action must be one of: backfill, live_start, live_stop")
 
+            try:
+                demo_simulator.LiveTicker.stop()
 
+                return Response({
+                    "success": True,
+                    "detail": "Live ticker stopping.",
+                    "live_running": demo_simulator.LiveTicker.is_running(),
+                })
 
+            except Exception as e:
+                print("\n" + "=" * 80)
+                print("LIVE TICKER STOP FAILED")
+                print("=" * 80)
+                print(traceback.format_exc())
+                print("=" * 80)
 
-if action == "seed":
-    try:
-        from django.core.management import call_command
+                return Response(
+                    {
+                        "success": False,
+                        "error_type": type(e).__name__,
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
-        print("\n" + "=" * 80)
-        print("STARTING DATABASE SEED")
-        print("=" * 80)
-
-        call_command("seed_catalog")
-
-        print("DATABASE SEED COMPLETED SUCCESSFULLY")
-
-        return Response({
-            "success": True,
-            "message": "Database seeded successfully"
-        })
-
-    except Exception as e:
-
-        print("\n" + "=" * 80)
-        print("DATABASE SEED FAILED")
-        print("=" * 80)
-
-        print(traceback.format_exc())
-
-        return Response(
-            {
-                "success": False,
-                "error_type": type(e).__name__,
-                "error": str(e),
-            },
-            status=500
+        # ------------------------------------------------------------------
+        # UNKNOWN ACTION
+        # ------------------------------------------------------------------
+        raise ValidationError(
+            "action must be one of: seed, backfill, live_start, live_stop"
         )
+
+
+
