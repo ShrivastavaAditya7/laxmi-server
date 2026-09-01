@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Laxmi Textiles Backend Debug</title>
+
+```
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        max-width: 1000px;
+        margin: 40px auto;
+        padding: 20px;
+        background: #f4f4f4;
+    }
+
+    h1 {
+        color: #222;
+    }
+
+    button {
+        padding: 12px 22px;
+        font-size: 16px;
+        cursor: pointer;
+        margin-bottom: 20px;
+    }
+
+    #status {
+        font-weight: bold;
+        margin: 15px 0;
+    }
+
+    pre {
+        background: #111;
+        color: #eee;
+        padding: 20px;
+        border-radius: 8px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow: auto;
+        max-height: 650px;
+    }
+</style>
+```
+
+</head>
+
+<body>
+
+<h1>Laxmi Textiles – Render Seed Debugger</h1>
+
+<p>
+    This page calls the deployed Django backend directly
+    and displays the complete raw response.
+</p>
+
+<button onclick="seedDatabase()">
+    Seed Production Database
+</button>
+
+<div id="status">
+    Ready
+</div>
+
+<pre id="output">
+No request made yet.
+</pre>
+
+<script>
+
+const URL =
+    "https://laxmi-server.onrender.com/api/admin/demo/";
+
+async function seedDatabase() {
+
+    const status = document.getElementById("status");
+    const output = document.getElementById("output");
+
+    status.textContent = "Sending seed request...";
+    output.textContent = "";
+
+    try {
+
+        const response = await fetch(URL, {
+            method: "POST",
+
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "*/*"
+            },
+
+            body: JSON.stringify({
+                action: "seed"
+            })
+        });
+
+        const rawText = await response.text();
+
+        status.textContent =
+            "HTTP " +
+            response.status +
+            " " +
+            response.statusText;
+
+        output.textContent = rawText;
+
+    } catch (error) {
+
+        status.textContent = "REQUEST FAILED";
+
+        output.textContent =
+            error.stack || error.toString();
+    }
+}
+
+</script>
+
+</body>
+</html>
