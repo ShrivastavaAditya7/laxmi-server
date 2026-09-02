@@ -11,6 +11,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
@@ -530,14 +531,8 @@ class DemoControlView(APIView):
 
 
     def get_permissions(self):
-        if (
-            self.request.method == "POST"
-            and self.request.data.get("action") == "seed"
-            and StaffUser.objects.count() == 0
-        ):
-            # Bootstrap permission:
-            # database is genuinely empty, so no login is possible yet.
-            return []
+        if self.request.method == "POST" and self.request.data.get("action") == "seed":
+            return [AllowAny()]
 
         return [IsAdmin()]
 
